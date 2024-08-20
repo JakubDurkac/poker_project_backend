@@ -8,6 +8,7 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+const TABLE_SIZE = 6;
 const activeNames = [];
 const nameToClientInfo = {};
 // const exampleClientInfo = {
@@ -16,13 +17,34 @@ const nameToClientInfo = {};
 //     bigBlindPrice: number
 //     tableName: string | null,
 // };
-const tables = [];
+const tables = [
+    {
+      name: "High Stakes",
+      buyIn: 2000,
+      bigBlind: 20,
+      playerNames: ["Jerry", "Harry", "Peter"],
+    },
+    {
+      name: "Casual Play",
+      buyIn: 500,
+      bigBlind: 5,
+      playerNames: ["Peter"],
+    },
+    {
+      name: "Low Stakes",
+      buyIn: 100,
+      bigBlind: 2,
+      playerNames: ["Jerry", "Harry", "Peter", "Ellie"],
+    },
+];
 // const exampleTable = {
-//     tableName: string,
+//     name: string,
+//     buyIn: number,
+//     bigBlind: number
 //     playerNames: string[],
-//     buyInPrice: number,
-//     bigBlindPrice: number
 // };
+
+const tableNameToTableInfo = {};
 
 function sendTablesList(toName) {
     const clientInfo = nameToClientInfo[toName];
@@ -38,8 +60,39 @@ function sendTablesList(toName) {
     clientInfo.socket.send(JSON.stringify(message));
 }
 
+function createTable(tableName, buyInPrice, bigBlindPrice) {
+    const newTable = {
+        name: tableName,
+        buyIn: buyInPrice,
+        bigBlind: bigBlindPrice,
+        playerNames: [],
+    };
+
+    tables.push(newTable);
+    tableNameToTableInfo[tableName] = newTable;
+}
+
+function addPlayerToTable(tableName, playerName) {
+    const table = tableNameToTableInfo[tableName];
+    if (!table || table.playerNames.length >= TABLE_SIZE) {
+        return; // failed to add player
+    }
+
+    table.playerNames.push(playerName);
+    // todo - set game state to active if (table.playerNames.length >= 2)
+    // active state -> hands are being dealt (shuffle and send out cards, 
+    // choose dealer, handle players choices, handle players communication
+    // evaluate hand winner, divide the pot, etc.)
+
+    // add new Table attributes: pot, communityCards, playerCards, playerBalances
+    // server shall send updates on the table state, clients shall update visuals
+    // on their end accordingly; in active state, hand starts with a table update
+    // sent to all players
+}
+
 function handleClientDisconnect(name) {
     // todo - notify opponents if client has assigned tableName, update table, etc.
+    // remove tables on disconnect of last player
     delete nameToClientInfo[name];
     removeName(name);
 }
@@ -67,6 +120,7 @@ wss.on('connection', (ws) => {
             return;
         }
 
+        console.log(objMessage);
         switch (objMessage.type) {
             case "initial":
                 const { clientName, buyInPrice, bigBlindPrice } = objMessage.data;
@@ -85,6 +139,18 @@ wss.on('connection', (ws) => {
                 sendTablesList(clientName);
 
                 console.log(`Client ${clientName} joins matchmaking.`);
+                break;
+
+            case "joinTableRequest":
+                const {tableName, playerName, playerBuyIn, playerBigBlind} = objMessage.data;
+                if (tableName === '#newTable') {
+                    createTable(playerName, playerBuyIn, playerBigBlind);
+                    addPlayerToTable(playerName, playerName);
+                } else {
+                    addPlayerToTable(tableName, playerName);
+                }
+                
+                break;
 
             default:
                 break;
