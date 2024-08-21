@@ -1,12 +1,11 @@
-const express = require('express');
-const http = require('http');
-const { send } = require('process');
-const WebSocket = require('ws');
+import express from 'express';
+import http from 'http';
+import { WebSocketServer } from 'ws';
 
 const PORT_NUMBER = 3000;
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocketServer({ server });
 
 const TABLE_SIZE = 6;
 const activeNames = [];
@@ -38,7 +37,8 @@ const tables = [
     // playerNames: string[],
     // pot: number,
     // communityCards: Card[],
-    // playerNamesToData: {'Harry': {cards: Card[], balance: number}}
+    // playerNamesToData: {'Harry': {cards: Card[], balance: number}} -> private -> clients can see only their cards, opponents cards = [null, null]
+    // deck: {cards: Card[], cardIndex: number} -> private -> to clients, send null instead
 // };
 // const exampleCard = {
     // suit: 'h', King of Hearts
@@ -92,18 +92,22 @@ function addPlayerToTable(tableName, playerName) {
     table.playerNames.push(playerName);
     nameToClientInfo[playerName].tableName = tableName;
 
-    if (table.playerNames.length >= 2) {
+    // 2 players -> game can start
+    // first hand starts after 2nd player joins,
+    // next hands will start automatically,
+    // while table is active
+    // table becomes inactive after there's
+    // only 1 player left
+    if (table.playerNames.length === 2) {
         table.isActive = true;
+        dealPokerHand(tableName);
     }
 
     sendTablesListToEveryone();
 
-    // set game state to active if (table.playerNames.length >= 2)
     // active state -> hands are being dealt (shuffle and send out cards, 
     // choose dealer, handle players choices, handle players communication
     // evaluate hand winner, divide the pot, etc.)
-
-    // add new Table attributes: pot, communityCards, playerCards, playerBalances
     // server shall send updates on the table state, clients shall update visuals
     // on their end accordingly; in active state, hand starts with a table update
     // sent to all players
