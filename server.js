@@ -55,6 +55,7 @@ const tableNameToTableInfo = {};
 
 function collectBlinds(table) {
     const {currentDealerIndex, playerNames, playerNamesToData, bigBlind} = table;
+    const smallBlind = bigBlind / 2;
 
     const offset = playerNames.length === 2 ? 0 : 1;
     const smallBlindPlayerIndex = (currentDealerIndex + offset) % playersCount;
@@ -63,12 +64,17 @@ function collectBlinds(table) {
     const smallBlindPlayerData = playerNamesToData[playerNames[smallBlindPlayerIndex]];
     const bigBlindPlayerData = playerNamesToData[playerNames[bigBlindPlayerIndex]];
 
-    // todo - solve player bankruptcy, pay only what a player has left
-    smallBlindPlayerData.balance -= bigBlind / 2;
-    bigBlindPlayerData.balance -= bigBlind;
+    // handling players not having enough balance for blinds
+    const smallBlindBid = smallBlindPlayerData.balance < smallBlind ? smallBlind - smallBlindPlayerData.balance : smallBlind;
+    const bigBlindBid = bigBlindPlayerData.balance < bigBlind ? bigBlind - bigBlindPlayerData.balance : bigBlind;
+   
+    smallBlindPlayerData.balance -= smallBlindBid;
+    smallBlindPlayerData.currentBid = smallBlindBid;
 
-    smallBlindPlayerData.currentBid = bigBlind / 2;
-    bigBlindPlayerData.currentBid = bigBlind;
+    bigBlindPlayerData.balance -= bigBlindBid;
+    bigBlindPlayerData.currentBid = bigBlindBid;
+
+    table.pot = smallBlindBid + bigBlindBid;
 }
 
 function initializePlayerNamesToData(table) {
@@ -93,6 +99,10 @@ function distributeCards(table) {
     }
 }
 
+function sendTableUpdate(table) {
+    
+}
+
 function dealPokerHand(tableName) {
     const table = tableNameToTableInfo[tableName];
     if (!table) {
@@ -112,7 +122,7 @@ function dealPokerHand(tableName) {
     distributeCards(table);
     collectBlinds(table);
 
-    // todo - send table update to players
+    sendTableUpdate(table);
 }
 
 function sendTablesList(toName) {
