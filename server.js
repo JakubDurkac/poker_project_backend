@@ -19,30 +19,31 @@ const nameToClientInfo = {};
 // };
 const tables = [
     {
-      name: "High Stakes",
-      buyIn: 2000,
-      bigBlind: 20,
-      playerNames: ["Jerry", "Harry", "Peter"],
-    },
-    {
-      name: "Casual Play",
-      buyIn: 500,
-      bigBlind: 5,
-      playerNames: ["Peter"],
-    },
-    {
-      name: "Low Stakes",
-      buyIn: 100,
-      bigBlind: 2,
-      playerNames: ["Jerry", "Harry", "Peter", "Ellie"],
+        name: "High Stakes",
+        buyIn: 2000,
+        bigBlind: 20,
+        playerNames: ["Jerry", "Harry", "Peter"],
+        pot: 0,
+        communityCards: [null, null, null, null, null],
+        playerNamesToData: {"Jerry": {cards: [{suit: 'c', rank: '7'}, {suit: 'd', rank: 't'}], balance: 1000},
+                        "Harry": {cards: [{suit: 'h', rank: 'a'}, {suit: 'c', rank: 'k'}], balance: 1000},
+                        "Peter": {cards: [{suit: 's', rank: 'q'}, {suit: 's', rank: '3'}], balance: 1000}},
+        isActive: false, 
     },
 ];
 // const exampleTable = {
-//     name: string,
-//     buyIn: number,
-//     bigBlind: number
-//     playerNames: string[],
+    // name: string,
+    // buyIn: number,
+    // bigBlind: number,
+    // playerNames: string[],
+    // pot: number,
+    // communityCards: Card[],
+    // playerNamesToData: {'Harry': {cards: Card[], balance: number}}
 // };
+// const exampleCard = {
+    // suit: 'h', King of Hearts
+    // rank: 'k',
+// }
 
 const tableNameToTableInfo = {};
 
@@ -60,12 +61,22 @@ function sendTablesList(toName) {
     clientInfo.socket.send(JSON.stringify(message));
 }
 
+function sendTablesListToEveryone() {
+    activeNames.forEach((toName) => {
+        sendTablesList(toName);
+    });
+}
+
 function createTable(tableName, buyInPrice, bigBlindPrice) {
     const newTable = {
         name: tableName,
         buyIn: buyInPrice,
         bigBlind: bigBlindPrice,
         playerNames: [],
+        pot: 0,
+        communityCards: [null, null, null, null, null],
+        playerNamesToData: {},
+        isActive: false,
     };
 
     tables.push(newTable);
@@ -79,7 +90,15 @@ function addPlayerToTable(tableName, playerName) {
     }
 
     table.playerNames.push(playerName);
-    // todo - set game state to active if (table.playerNames.length >= 2)
+    nameToClientInfo[playerName].tableName = tableName;
+
+    if (table.playerNames.length >= 2) {
+        table.isActive = true;
+    }
+
+    sendTablesListToEveryone();
+
+    // set game state to active if (table.playerNames.length >= 2)
     // active state -> hands are being dealt (shuffle and send out cards, 
     // choose dealer, handle players choices, handle players communication
     // evaluate hand winner, divide the pot, etc.)
@@ -90,9 +109,40 @@ function addPlayerToTable(tableName, playerName) {
     // sent to all players
 }
 
+function removeTable(tableName) {
+    removeTableFromTablesList(tableName);
+    delete tableNameToTableInfo[tableName];
+}
+
+function handlePlayerLeaveTable(tableName, playerName) {
+    // todo - notify opponents that playerName left, e.g. send table update
+    // to the players at the table at the end of this function
+    const table = tableNameToTableInfo[tableName];
+    if (!table) {
+        return;
+    }
+
+    delete table.playerNamesToData[playerName];
+    table.playerNames = table.playerNames.filter(name => name !== playerName);
+
+    if (table.playerNames.length <= 0) {
+        console.log('removing table');
+        removeTable(tableName);
+        console.log(tables);
+    } else if (table.playerNames.length <= 1) {
+        table.isActive = false;
+    }
+
+    sendTablesListToEveryone();
+}
+
 function handleClientDisconnect(name) {
-    // todo - notify opponents if client has assigned tableName, update table, etc.
-    // remove tables on disconnect of last player
+    const clientInfo = nameToClientInfo[name];
+    console.log("Table:", clientInfo.tableName);
+    if (clientInfo && clientInfo.tableName) {
+        handlePlayerLeaveTable(clientInfo.tableName, name);
+    }
+
     delete nameToClientInfo[name];
     removeName(name);
 }
@@ -101,6 +151,18 @@ function removeName(name) {
     const indexToRemove = activeNames.indexOf(name);
     if (indexToRemove >= 0) {
         activeNames.splice(indexToRemove, 1);
+    }
+}
+
+function removeTableFromTablesList(tableName) {
+    const indexToRemove = tables.findIndex((table) => {
+        return table.name === tableName;
+    });
+
+    console.log(indexToRemove);
+
+    if (indexToRemove >= 0) {
+        tables.splice(indexToRemove, 1);
     }
 }
 
