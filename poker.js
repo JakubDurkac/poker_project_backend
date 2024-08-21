@@ -9,7 +9,7 @@ for (let i = 0; i < suits.length; i++) {
 }
 
 export function getShuffledCardDeck() {
-    const newCardDeck = [...initialCardDeck];
+    const newCardDeck = JSON.parse(JSON.stringify(initialCardDeck));
 
     // Fisher-Yates shuffle algorithm
     for (let i = newCardDeck.length - 1; i > 0; i--) {

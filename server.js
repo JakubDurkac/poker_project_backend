@@ -92,15 +92,25 @@ function distributeCards(table) {
         }
     });
 
-    table.communityCards = []
-    for (let i = 0; i < 5; i++) {
-        table.communityCards.push(deck.cards[deck.cardIndex]);
-        deck.cardIndex++;
-    }
+    table.communityCards = [null, null, null, null, null];
 }
 
 function sendTableUpdate(table) {
-    
+    table.playerNames.forEach((playerName) => {
+        const tableDataCopy = JSON.parse(JSON.stringify(table));
+        
+        // privatize cards of opponents
+        table.playerNames.forEach((name) => {
+            if (playerName !== name) {
+                tableDataCopy.playerNamesToData[name].cards = [null, null];
+            }
+        });
+
+        // privatize card deck
+        tableDataCopy.deck = null;
+
+        sendMessageToClient(playerName, "tableUpdate", tableDataCopy);
+    });
 }
 
 function dealPokerHand(tableName) {
@@ -126,17 +136,7 @@ function dealPokerHand(tableName) {
 }
 
 function sendTablesList(toName) {
-    const clientInfo = nameToClientInfo[toName];
-    if (!clientInfo || !clientInfo.socket) {
-        return;
-    }
-    
-    const message = {
-        type: "tablesList",
-        data: tables
-    };
-
-    clientInfo.socket.send(JSON.stringify(message));
+    sendMessageToClient(toName, "tablesList", tables);
 }
 
 function sendTablesListToEveryone() {
@@ -250,6 +250,20 @@ function removeTableFromTablesList(tableName) {
     if (indexToRemove >= 0) {
         tables.splice(indexToRemove, 1);
     }
+}
+
+function sendMessageToClient(toName, messageType, messageData) {
+    const clientInfo = nameToClientInfo[toName];
+    if (!clientInfo || !clientInfo.socket) {
+        return;
+    }
+
+    const message = {
+        type: messageType,
+        data: messageData,
+    };
+
+    clientInfo.socket.send(JSON.stringify(message));
 }
 
 wss.on('connection', (ws) => {
