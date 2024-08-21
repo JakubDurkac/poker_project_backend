@@ -1,6 +1,7 @@
 import express from 'express';
 import http from 'http';
 import { WebSocketServer } from 'ws';
+import { getShuffledCardDeck } from './poker';
 
 const PORT_NUMBER = 3000;
 const app = express();
@@ -24,10 +25,13 @@ const tables = [
         playerNames: ["Jerry", "Harry", "Peter"],
         pot: 0,
         communityCards: [null, null, null, null, null],
-        playerNamesToData: {"Jerry": {cards: [{suit: 'c', rank: '7'}, {suit: 'd', rank: 't'}], balance: 1000},
-                        "Harry": {cards: [{suit: 'h', rank: 'a'}, {suit: 'c', rank: 'k'}], balance: 1000},
-                        "Peter": {cards: [{suit: 's', rank: 'q'}, {suit: 's', rank: '3'}], balance: 1000}},
-        isActive: false, 
+        playerNamesToData: {"Jerry": {cards: [{suit: 'c', rank: '7'}, {suit: 'd', rank: 't'}], balance: 1000, currentBid: 0},
+                        "Harry": {cards: [{suit: 'h', rank: 'a'}, {suit: 'c', rank: 'k'}], balance: 1000, currentBid: 0},
+                        "Peter": {cards: [{suit: 's', rank: 'q'}, {suit: 's', rank: '3'}], balance: 1000, currentBid: 0}},
+        isActive: false,
+        currentDealerIndex: 0,
+        currentPlayerIndex: 0,
+        deck: {cards: [], cardIndex: 0}
     },
 ];
 // const exampleTable = {
@@ -37,7 +41,9 @@ const tables = [
     // playerNames: string[],
     // pot: number,
     // communityCards: Card[],
-    // playerNamesToData: {'Harry': {cards: Card[], balance: number}} -> private -> clients can see only their cards, opponents cards = [null, null]
+    // playerNamesToData: {'Harry': {cards: Card[], balance: number, currentBid: number}} -> private -> clients can see only their cards, opponents cards = [null, null]
+    // currentDealerIndex: number,
+    // currentPlayerIndex: number,
     // deck: {cards: Card[], cardIndex: number} -> private -> to clients, send null instead
 // };
 // const exampleCard = {
@@ -46,6 +52,68 @@ const tables = [
 // }
 
 const tableNameToTableInfo = {};
+
+function collectBlinds(table) {
+    const {currentDealerIndex, playerNames, playerNamesToData, bigBlind} = table;
+
+    const offset = playerNames.length === 2 ? 0 : 1;
+    const smallBlindPlayerIndex = (currentDealerIndex + offset) % playersCount;
+    const bigBlindPlayerIndex = (currentDealerIndex + offset + 1) % playersCount;
+
+    const smallBlindPlayerData = playerNamesToData[playerNames[smallBlindPlayerIndex]];
+    const bigBlindPlayerData = playerNamesToData[playerNames[bigBlindPlayerIndex]];
+
+    // todo - solve player bankruptcy, pay only what a player has left
+    smallBlindPlayerData.balance -= bigBlind / 2;
+    bigBlindPlayerData.balance -= bigBlind;
+
+    smallBlindPlayerData.currentBid = bigBlind / 2;
+    bigBlindPlayerData.currentBid = bigBlind;
+}
+
+function initializePlayerNamesToData(table) {
+    table.playerNames.forEach((playerName) => {
+        table.playerNamesToData[playerName] = {cards: [null, null], balance: table.buyIn, currentBid: 0};
+    });
+}
+
+function distributeCards(table) {
+    const {deck} = table;
+    table.playerNames.forEach((playerName) => {
+        const playerData = table.playerNamesToData[playerName];
+        if (playerData) {
+            playerData.cards = [deck.cards[deck.cardIndex++], deck.cards[deck.cardIndex++]];
+        }
+    });
+
+    table.communityCards = []
+    for (let i = 0; i < 5; i++) {
+        table.communityCards.push(deck.cards[deck.cardIndex]);
+        deck.cardIndex++;
+    }
+}
+
+function dealPokerHand(tableName) {
+    const table = tableNameToTableInfo[tableName];
+    if (!table) {
+        return; // table is undefined
+    }
+
+    const playersCount = table.playerNames.length;
+
+    if (table.deck === null) { // first hand
+        initializePlayerNamesToData(table);
+    }
+
+    table.deck = {cards: getShuffledCardDeck(), cardIndex: 0};
+    table.currentDealerIndex = (table.currentDealerIndex + 1) % playersCount; // at start index goes from -1 to 0, later -> index increments
+    table.currentPlayerIndex = (table.currentDealerIndex + 3) % playersCount;
+
+    distributeCards(table);
+    collectBlinds(table);
+
+    // todo - send table update to players
+}
 
 function sendTablesList(toName) {
     const clientInfo = nameToClientInfo[toName];
@@ -77,10 +145,18 @@ function createTable(tableName, buyInPrice, bigBlindPrice) {
         communityCards: [null, null, null, null, null],
         playerNamesToData: {},
         isActive: false,
+        currentDealerIndex: -1,
+        currentPlayerIndex: -1,
+        deck: null
     };
 
     tables.push(newTable);
     tableNameToTableInfo[tableName] = newTable;
+}
+
+function removeTable(tableName) {
+    removeTableFromTablesList(tableName);
+    delete tableNameToTableInfo[tableName];
 }
 
 function addPlayerToTable(tableName, playerName) {
@@ -92,6 +168,7 @@ function addPlayerToTable(tableName, playerName) {
     table.playerNames.push(playerName);
     nameToClientInfo[playerName].tableName = tableName;
 
+    // game entry point:
     // 2 players -> game can start
     // first hand starts after 2nd player joins,
     // next hands will start automatically,
@@ -111,11 +188,6 @@ function addPlayerToTable(tableName, playerName) {
     // server shall send updates on the table state, clients shall update visuals
     // on their end accordingly; in active state, hand starts with a table update
     // sent to all players
-}
-
-function removeTable(tableName) {
-    removeTableFromTablesList(tableName);
-    delete tableNameToTableInfo[tableName];
 }
 
 function handlePlayerLeaveTable(tableName, playerName) {
