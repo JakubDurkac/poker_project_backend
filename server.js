@@ -58,16 +58,11 @@ const tables = [
 
 const tableNameToTableInfo = {};
 
-function collectBlinds(table) {
-    const {currentDealerIndex, playerNames, playerNamesToData, bigBlind} = table;
+function collectBlinds(table, smallBlindPlayerIndex, bigBlindPlayerIndex) {
+    const {playerNames, playerNamesToData, bigBlind} = table;
     console.log("Collecting blinds from: ", playerNames);
-    const playersCount = playerNames.length;
+    
     const smallBlind = bigBlind / 2;
-
-    const offset = playersCount === 2 ? 0 : 1;
-    const smallBlindPlayerIndex = (currentDealerIndex + offset) % playersCount;
-    const bigBlindPlayerIndex = (currentDealerIndex + offset + 1) % playersCount;
-
     const smallBlindPlayerData = playerNamesToData[playerNames[smallBlindPlayerIndex]];
     const bigBlindPlayerData = playerNamesToData[playerNames[bigBlindPlayerIndex]];
 
@@ -78,6 +73,7 @@ function collectBlinds(table) {
     const smallBlindBid = smallBlindPlayerData.balance < smallBlind ? smallBlind - smallBlindPlayerData.balance : smallBlind;
     const bigBlindBid = bigBlindPlayerData.balance < bigBlind ? bigBlind - bigBlindPlayerData.balance : bigBlind;
    
+    // updating playerData
     smallBlindPlayerData.balance -= smallBlindBid;
     smallBlindPlayerData.currentBid = smallBlindBid;
     smallBlindPlayerData.status = "smallBlind";
@@ -142,10 +138,14 @@ function dealPokerHand(tableName) {
 
     table.deck = {cards: getShuffledCardDeck(), cardIndex: 0};
     table.currentDealerIndex = (table.currentDealerIndex + 1) % playersCount; // at start index goes from -1 to 0, later -> index increments
-    table.currentPlayerIndex = (table.currentDealerIndex + 3) % playersCount;
+
+    const offset = playersCount === 2 ? 0 : 1;
+    const smallBlindPlayerIndex = (table.currentDealerIndex + offset) % playersCount;
+    const bigBlindPlayerIndex = (table.currentDealerIndex + offset + 1) % playersCount;
+    table.currentPlayerIndex = (table.currentDealerIndex + offset + 2) % playersCount;
 
     distributeCards(table);
-    collectBlinds(table);
+    collectBlinds(table, smallBlindPlayerIndex, bigBlindPlayerIndex);
 
     sendTableUpdate(table);
 }
