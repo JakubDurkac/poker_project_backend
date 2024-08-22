@@ -1,7 +1,7 @@
 import express from 'express';
 import http from 'http';
 import { WebSocketServer } from 'ws';
-import { getShuffledCardDeck } from './poker';
+import { getShuffledCardDeck } from './poker.js';
 
 const PORT_NUMBER = 3000;
 const app = express();
@@ -25,9 +25,9 @@ const tables = [
         playerNames: ["Jerry", "Harry", "Peter"],
         pot: 0,
         communityCards: [null, null, null, null, null],
-        playerNamesToData: {"Jerry": {cards: [{suit: 'c', rank: '7'}, {suit: 'd', rank: 't'}], balance: 1000, currentBid: 0},
-                        "Harry": {cards: [{suit: 'h', rank: 'a'}, {suit: 'c', rank: 'k'}], balance: 1000, currentBid: 0},
-                        "Peter": {cards: [{suit: 's', rank: 'q'}, {suit: 's', rank: '3'}], balance: 1000, currentBid: 0}},
+        playerNamesToData: {"Jerry": {cards: [{suit: 'c', rank: '7'}, {suit: 'd', rank: 't'}], balance: 1000, currentBid: 0, status: "none", statusData: 0},
+                        "Harry": {cards: [{suit: 'h', rank: 'a'}, {suit: 'c', rank: 'k'}], balance: 1000, currentBid: 0, status: "none", statusData: 0},
+                        "Peter": {cards: [{suit: 's', rank: 'q'}, {suit: 's', rank: '3'}], balance: 1000, currentBid: 0, status: "none", statusData: 0}},
         isActive: false,
         currentDealerIndex: 0,
         currentPlayerIndex: 0,
@@ -41,7 +41,12 @@ const tables = [
     // playerNames: string[],
     // pot: number,
     // communityCards: Card[],
-    // playerNamesToData: {'Harry': {cards: Card[], balance: number, currentBid: number}} -> private -> clients can see only their cards, opponents cards = [null, null]
+    // playerNamesToData: {'Harry': {cards: Card[], balance: number, currentBid: number, 
+    //     status: "none" | "smallBlind" | "bigBlind" | "call" | "raise" | "check" | "fold" | "inactive";
+    //     statusData: number //in case of call or raise
+    //
+    // } -> private -> clients can see only their cards, opponents cards = [null, null]
+    
     // currentDealerIndex: number,
     // currentPlayerIndex: number,
     // deck: {cards: Card[], cardIndex: number} -> private -> to clients, send null instead
@@ -55,14 +60,19 @@ const tableNameToTableInfo = {};
 
 function collectBlinds(table) {
     const {currentDealerIndex, playerNames, playerNamesToData, bigBlind} = table;
+    console.log("Collecting blinds from: ", playerNames);
+    const playersCount = playerNames.length;
     const smallBlind = bigBlind / 2;
 
-    const offset = playerNames.length === 2 ? 0 : 1;
+    const offset = playersCount === 2 ? 0 : 1;
     const smallBlindPlayerIndex = (currentDealerIndex + offset) % playersCount;
     const bigBlindPlayerIndex = (currentDealerIndex + offset + 1) % playersCount;
 
     const smallBlindPlayerData = playerNamesToData[playerNames[smallBlindPlayerIndex]];
     const bigBlindPlayerData = playerNamesToData[playerNames[bigBlindPlayerIndex]];
+
+    console.log("SmallBlind: ", smallBlindPlayerData);
+    console.log("BigBlind: ", bigBlindPlayerData);
 
     // handling players not having enough balance for blinds
     const smallBlindBid = smallBlindPlayerData.balance < smallBlind ? smallBlind - smallBlindPlayerData.balance : smallBlind;
@@ -70,16 +80,21 @@ function collectBlinds(table) {
    
     smallBlindPlayerData.balance -= smallBlindBid;
     smallBlindPlayerData.currentBid = smallBlindBid;
+    smallBlindPlayerData.status = "smallBlind";
+    smallBlindPlayerData.statusData = smallBlindBid;
 
     bigBlindPlayerData.balance -= bigBlindBid;
     bigBlindPlayerData.currentBid = bigBlindBid;
+    bigBlindPlayerData.status = "bigBlind";
+    bigBlindPlayerData.statusData = bigBlindBid;
 
-    table.pot = smallBlindBid + bigBlindBid;
+    // all bids should be collected at the end of bidding round instead of immediately
+    // table.pot = smallBlindBid + bigBlindBid;
 }
 
 function initializePlayerNamesToData(table) {
     table.playerNames.forEach((playerName) => {
-        table.playerNamesToData[playerName] = {cards: [null, null], balance: table.buyIn, currentBid: 0};
+        table.playerNamesToData[playerName] = {cards: [null, null], balance: table.buyIn, currentBid: 0, status: "none", statusData: 0};
     });
 }
 
@@ -176,6 +191,8 @@ function addPlayerToTable(tableName, playerName) {
     }
 
     table.playerNames.push(playerName);
+    // here initialize playerNamesToData[playerName] marked with "fold" state, so the player starts on next hand
+    table.playerNamesToData[playerName] = {cards: [null, null], balance: table.buyIn, currentBid: 0, status: "fold", statusData: 0};
     nameToClientInfo[playerName].tableName = tableName;
 
     // game entry point:
@@ -188,6 +205,8 @@ function addPlayerToTable(tableName, playerName) {
     if (table.playerNames.length === 2) {
         table.isActive = true;
         dealPokerHand(tableName);
+    } else {
+        sendTableUpdate(table);
     }
 
     sendTablesListToEveryone();
@@ -201,20 +220,26 @@ function addPlayerToTable(tableName, playerName) {
 }
 
 function handlePlayerLeaveTable(tableName, playerName) {
-    // todo - notify opponents that playerName left, e.g. send table update
-    // to the players at the table at the end of this function
+    // todo - instead of removing player from table immediately, keep him there
+    // until the start of next hand (where he will be removed), this player
+    // should be marked "disconnected" in some way, his turn is skipped as "fold"
+    // but he is still able to win and decrease balance of others, if this auto-fold
+    // does not happen in time after his disconnect and before the end of hand
+    
+    // todo - disconnectQueue to the table, the player will be removed from table
+    // at the end of the hand
     const table = tableNameToTableInfo[tableName];
     if (!table) {
         return;
     }
 
+    // instead of this part, put player to disconnect queue
     delete table.playerNamesToData[playerName];
     table.playerNames = table.playerNames.filter(name => name !== playerName);
+    // 
 
     if (table.playerNames.length <= 0) {
-        console.log('removing table');
         removeTable(tableName);
-        console.log(tables);
     } else if (table.playerNames.length <= 1) {
         table.isActive = false;
     }
