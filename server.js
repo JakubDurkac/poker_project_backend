@@ -150,6 +150,80 @@ function dealPokerHand(tableName) {
     sendTableUpdate(table);
 }
 
+function isActivePlayer(player) {
+    return player.status !== 'fold' && player.status !== 'inactive';
+}
+
+function hasNotPlayedYet(player) {
+    return player.status === 'none' || player.status === 'smallBlind' || player.status === 'bigBlind';
+}
+
+function processPlayerChoice(currentPlayerName, status, statusData) {
+    const tableName = nameToClientInfo[currentPlayerName].tableName;
+    const table = tableNameToTableInfo[tableName];
+    if (!table) {
+        return; // table is undefined
+    }
+
+    const {playerNames, playerNamesToData} = table;
+    const senderPlayerIndex = playerNames.findIndex((name) => {
+        return name === currentPlayerName;
+    });
+
+    if (senderPlayerIndex === -1 || senderPlayerIndex !== table.currentPlayerIndex) {
+        return; // player not at the table or not their turn
+    }
+
+    const allPlayersData = playerNames.map((playerName) => {
+        return playerNamesToData[playerName];
+    });
+
+    // update current player data based on player's choice
+    const currentPlayerData = allPlayersData[0];
+    currentPlayerData.status = status;
+    currentPlayerData.statusData = statusData;
+    currentPlayerData.currentBid += statusData;
+    currentPlayerData.balance -= statusData;
+
+    const activePlayersData = allPlayersData.filter((player) => {
+        return isActivePlayer(player);
+    });
+
+    // 1 player left, winner of the hand
+    if (activePlayersData.length === 1) {
+        allPlayersData.forEach((player) => {
+            table.pot += player.currentBid;
+            player.currentBid = 0;
+        });
+
+        activePlayersData[0].balance += table.pot;
+        table.pot = 0;
+
+        // todo - send table update - before, set currentPlayerIndex = -1, so no one can make choices, wait a few seconds for players to process it, then deal next poker hand (if 2+ players)
+        return;
+    }
+
+    const activePlayerBid = activePlayersData[0].currentBid;
+    const shouldBettingRoundContinue = activePlayersData.find((player) => {
+        return player.currentBid !== activePlayerBid || hasNotPlayedYet(player);
+    });
+
+    if (shouldBettingRoundContinue) {
+        // choose whose turn it is
+        table.currentPlayerIndex = (table.currentPlayerIndex + 1) % playerNames.length;
+        while (!isActivePlayer(allPlayersData[table.currentPlayerIndex])) {
+            table.currentPlayerIndex = (table.currentPlayerIndex + 1) % playerNames.length;
+        }
+
+        // todo - send table update
+
+        return;
+    }
+
+    // todo - betting ended -> next stage function should be called (either flop, river, turn or showdown based on the state of communityCards)
+    // it's important to reset ACTIVE players status back to "none" and chosen the first ACTIVE guy after DEALER as currentPlayer, FOLD and INACTIVE players are skipped
+}
+
 function sendTablesList(toName) {
     sendMessageToClient(toName, "tablesList", tables);
 }
@@ -338,6 +412,12 @@ wss.on('connection', (ws) => {
                 }
                 
                 break;
+
+            case "inGameChoice":
+                const currentPlayerName = objMessage.data.clientName;
+                const { status, statusData } = objMessage.data;
+                
+                processPlayerChoice(currentPlayerName, status, statusData);
 
             default:
                 break;
