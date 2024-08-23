@@ -59,7 +59,26 @@ const tables = [
 const tableNameToTableInfo = {};
 
 function concludeBiddingRound(table) {
+    const { communityCards, deck } = table;
+    if (communityCards[0] === null) {
+        // show flop (first 3 cards)
+        for (let i = 0; i < 3; i++) {
+            communityCards[i] = deck.cards[deck.cardIndex++];
+        }
+
+    } else if (communityCards[3] === null) {
+        // show river (4th card)
+        communityCards[3] = deck.cards[deck.cardIndex++];
     
+    } else if (communityCards[4] === null) {
+        // show turn (5th card)
+        communityCards[4] = deck.cards[deck.cardIndex++];
+
+    } else {
+        // todo - winner evaluation
+    }
+
+    sendTableUpdate(table);
 }
 
 function collectBlinds(table, smallBlindPlayerIndex, bigBlindPlayerIndex) {
@@ -263,7 +282,7 @@ function processPlayerChoice(currentPlayerName, status, statusData) {
             table.currentPlayerIndex = (table.currentPlayerIndex + 1) % playerNames.length;
         }
 
-        // reset statuses for next bidding round / showdown
+        // reset statuses of active players for next bidding round / showdown
         activePlayersData.forEach((player) => {
             player.status = "none";
             player.statusData = 0;
