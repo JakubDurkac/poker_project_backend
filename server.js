@@ -58,6 +58,10 @@ const tables = [
 
 const tableNameToTableInfo = {};
 
+function concludeBiddingRound(table) {
+    
+}
+
 function collectBlinds(table, smallBlindPlayerIndex, bigBlindPlayerIndex) {
     const {playerNames, playerNamesToData, bigBlind} = table;
     console.log("Collecting blinds from: ", playerNames);
@@ -91,6 +95,14 @@ function collectBlinds(table, smallBlindPlayerIndex, bigBlindPlayerIndex) {
 function initializePlayerNamesToData(table) {
     table.playerNames.forEach((playerName) => {
         table.playerNamesToData[playerName] = {cards: [null, null], balance: table.buyIn, currentBid: 0, status: "none", statusData: 0};
+    });
+}
+
+function resetPlayerStatuses(table) {
+    table.playerNames.forEach((playerName) => {
+        const playerData = table.playerNamesToData[playerName]
+        playerData.status = "none";
+        playerData.statusData = 0;
     });
 }
 
@@ -131,9 +143,14 @@ function dealPokerHand(tableName) {
     }
 
     const playersCount = table.playerNames.length;
+    if (playersCount === 1) {
+        return; // not enough players
+    }
 
     if (table.deck === null) { // first hand
         initializePlayerNamesToData(table);
+    } else {
+        resetPlayerStatuses(table);
     }
 
     table.deck = {cards: getShuffledCardDeck(), cardIndex: 0};
@@ -178,12 +195,16 @@ function processPlayerChoice(currentPlayerName, status, statusData) {
         return playerNamesToData[playerName];
     });
 
+    console.log("AllPlayersData before: ", allPlayersData);
+
     // update current player data based on player's choice
-    const currentPlayerData = allPlayersData[0];
+    const currentPlayerData = allPlayersData[senderPlayerIndex];
     currentPlayerData.status = status;
     currentPlayerData.statusData = statusData;
     currentPlayerData.currentBid += statusData;
     currentPlayerData.balance -= statusData;
+
+    console.log("AllPlayersData after: ", allPlayersData);
 
     const activePlayersData = allPlayersData.filter((player) => {
         return isActivePlayer(player);
@@ -199,7 +220,13 @@ function processPlayerChoice(currentPlayerName, status, statusData) {
         activePlayersData[0].balance += table.pot;
         table.pot = 0;
 
-        // todo - send table update - before, set currentPlayerIndex = -1, so no one can make choices, wait a few seconds for players to process it, then deal next poker hand (if 2+ players)
+        table.currentPlayerIndex = -1;
+        sendTableUpdate(table);
+
+        setTimeout(() => {
+            dealPokerHand(tableName);
+        }, 3000);
+
         return;
     }
 
@@ -209,19 +236,41 @@ function processPlayerChoice(currentPlayerName, status, statusData) {
     });
 
     if (shouldBettingRoundContinue) {
-        // choose whose turn it is
+        // choose whose turn it is (first active player left to the current player)
         table.currentPlayerIndex = (table.currentPlayerIndex + 1) % playerNames.length;
         while (!isActivePlayer(allPlayersData[table.currentPlayerIndex])) {
             table.currentPlayerIndex = (table.currentPlayerIndex + 1) % playerNames.length;
         }
 
-        // todo - send table update
-
+        sendTableUpdate(table);
         return;
     }
+    
+    // add all bids to the pot
+    allPlayersData.forEach((player) => {
+        table.pot += player.currentBid;
+        player.currentBid = 0;
+    });
 
-    // todo - betting ended -> next stage function should be called (either flop, river, turn or showdown based on the state of communityCards)
-    // it's important to reset ACTIVE players status back to "none" and chosen the first ACTIVE guy after DEALER as currentPlayer, FOLD and INACTIVE players are skipped
+    // disable choices, next stage update in a few seconds, so players can process what's happening
+    table.currentPlayerIndex = -1;
+    sendTableUpdate(table);
+
+    setTimeout(() => {
+        // choose whose turn it is (first active player left to the dealer)
+        table.currentPlayerIndex = (table.currentDealerIndex + 1) % playerNames.length;
+        while (!isActivePlayer(allPlayersData[table.currentPlayerIndex])) {
+            table.currentPlayerIndex = (table.currentPlayerIndex + 1) % playerNames.length;
+        }
+
+        // reset statuses for next bidding round / showdown
+        activePlayersData.forEach((player) => {
+            player.status = "none";
+            player.statusData = 0;
+        });
+
+        concludeBiddingRound(table); // based on situation - show flop / river / turn / showdown - choosing winner
+    }, 3000);
 }
 
 function sendTablesList(toName) {
