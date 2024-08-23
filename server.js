@@ -25,9 +25,9 @@ const tables = [
         playerNames: ["Jerry", "Harry", "Peter"],
         pot: 0,
         communityCards: [null, null, null, null, null],
-        playerNamesToData: {"Jerry": {cards: [{suit: 'c', rank: '7'}, {suit: 'd', rank: 't'}], balance: 1000, currentBid: 0, status: "none", statusData: 0},
-                        "Harry": {cards: [{suit: 'h', rank: 'a'}, {suit: 'c', rank: 'k'}], balance: 1000, currentBid: 0, status: "none", statusData: 0},
-                        "Peter": {cards: [{suit: 's', rank: 'q'}, {suit: 's', rank: '3'}], balance: 1000, currentBid: 0, status: "none", statusData: 0}},
+        playerNamesToData: {"Jerry": {cards: [{suit: 'c', rank: '7'}, {suit: 'd', rank: 't'}], balance: 1000, currentBid: 0, totalBid: 0, status: "none", statusData: 0},
+                        "Harry": {cards: [{suit: 'h', rank: 'a'}, {suit: 'c', rank: 'k'}], balance: 1000, currentBid: 0, totalBid: 0, status: "none", statusData: 0},
+                        "Peter": {cards: [{suit: 's', rank: 'q'}, {suit: 's', rank: '3'}], balance: 1000, currentBid: 0, totalBid: 0, status: "none", statusData: 0}},
         isActive: false,
         currentDealerIndex: 0,
         currentPlayerIndex: 0,
@@ -41,7 +41,7 @@ const tables = [
     // playerNames: string[],
     // pot: number,
     // communityCards: Card[],
-    // playerNamesToData: {'Harry': {cards: Card[], balance: number, currentBid: number, 
+    // playerNamesToData: {'Harry': {cards: Card[], balance: number, currentBid: number, totalBid: number,
     //     status: "none" | "smallBlind" | "bigBlind" | "call" | "raise" | "check" | "fold" | "inactive";
     //     statusData: number //in case of call or raise
     //
@@ -106,14 +106,11 @@ function collectBlinds(table, smallBlindPlayerIndex, bigBlindPlayerIndex) {
     bigBlindPlayerData.currentBid = bigBlindBid;
     bigBlindPlayerData.status = "bigBlind";
     bigBlindPlayerData.statusData = bigBlindBid;
-
-    // all bids should be collected at the end of bidding round instead of immediately
-    // table.pot = smallBlindBid + bigBlindBid;
 }
 
 function initializePlayerNamesToData(table) {
     table.playerNames.forEach((playerName) => {
-        table.playerNamesToData[playerName] = {cards: [null, null], balance: table.buyIn, currentBid: 0, status: "none", statusData: 0};
+        table.playerNamesToData[playerName] = {cards: [null, null], balance: table.buyIn, currentBid: 0, totalBid: 0, status: "none", statusData: 0};
     });
 }
 
@@ -122,6 +119,14 @@ function resetPlayerStatuses(table) {
         const playerData = table.playerNamesToData[playerName]
         playerData.status = "none";
         playerData.statusData = 0;
+    });
+}
+
+function resetPlayerTotalBids(table) {
+    table.playerNames.forEach((playerName) => {
+        const playerData = table.playerNamesToData[playerName]
+        playerData.totalBid = 0;
+        playerData.currentBid = 0;
     });
 }
 
@@ -170,6 +175,7 @@ function dealPokerHand(tableName) {
         initializePlayerNamesToData(table);
     } else {
         resetPlayerStatuses(table);
+        resetPlayerTotalBids(table);
     }
 
     table.deck = {cards: getShuffledCardDeck(), cardIndex: 0};
@@ -249,9 +255,17 @@ function processPlayerChoice(currentPlayerName, status, statusData) {
         return;
     }
 
-    const activePlayerBid = activePlayersData[0].currentBid;
+    // pick highest active player bid as activePlayerBid
+    let activePlayerBid = activePlayersData[0].currentBid;
+    activePlayersData.forEach((activePlayer) => {
+        if (activePlayer.currentBid > activePlayerBid) {
+            activePlayerBid = activePlayer.currentBid;
+        }
+    });
+
+    // player can have different (lower) bid from the highest active bid, if he has 0 balance (went all-in)
     const shouldBettingRoundContinue = activePlayersData.find((player) => {
-        return player.currentBid !== activePlayerBid || hasNotPlayedYet(player);
+        return (player.currentBid !== activePlayerBid && player.balance > 0) || hasNotPlayedYet(player);
     });
 
     if (shouldBettingRoundContinue) {
@@ -268,6 +282,7 @@ function processPlayerChoice(currentPlayerName, status, statusData) {
     // add all bids to the pot
     allPlayersData.forEach((player) => {
         table.pot += player.currentBid;
+        player.totalBid += player.currentBid;
         player.currentBid = 0;
     });
 
