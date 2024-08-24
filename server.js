@@ -58,7 +58,26 @@ const tables = [
 
 const tableNameToTableInfo = {};
 
-function concludeBiddingRound(table) {
+function distributeHandRatings(table, allPlayersData) {
+    // todo - implement
+}
+
+function concludeHand(table, allPlayersData) {
+    const playerHandRatings = distributeHandRatings(table, allPlayersData); // {index: rating}
+    const activePlayersSummary = allPlayersData.map((playerData, playerIndex) => {
+        return { index: playerIndex, totalBid: playerData.totalBid, handRating: playerHandRatings[playerIndex] };
+    }); // [{index: number, totalBid: number, handRating: number}]
+
+    const playerWinnings = distributeWinnings(activePlayersSummary); // {index: amount}
+
+    allPlayersData.forEach((playerData, playerIndex) => {
+        playerData.balance += playerWinnings[playerIndex]; // possibly Math.round needed
+    });
+
+    table.pot = 0;
+}
+
+function concludeBiddingRound(table, allPlayersData) {
     const { communityCards, deck } = table;
     if (communityCards[0] === null) {
         // show flop (first 3 cards)
@@ -76,10 +95,64 @@ function concludeBiddingRound(table) {
 
     } else {
         // todo - winner evaluation
+        concludeHand(table, allPlayersData);
+        sendTableUpdate(table); // modification - need to show cards of active players
+        setTimeout(() => {
+            dealPokerHand(table); // deal a new hand in a few seconds
+        }, 3000);
+        
+        return;
     }
 
     sendTableUpdate(table);
 }
+
+function distributeWinnings(players) {
+    players.sort((a, b) => b.handRating - a.handRating || a.totalBid - b.totalBid);
+
+    let pots = [];
+    let remainingPlayers = [...players];
+
+    while (remainingPlayers.length > 0) {
+        let currentPlayer = remainingPlayers[0];
+        let currentBid = currentPlayer.totalBid;
+
+        let currentPot = {
+            amount: 0,
+            players: []
+        };
+
+        remainingPlayers.forEach(player => {
+            let contribution = Math.min(player.totalBid, currentBid);
+            currentPot.amount += contribution;
+            player.totalBid -= contribution;
+
+            if (contribution > 0) {
+                currentPot.players.push(player);
+            }
+        });
+
+        pots.push(currentPot);
+        remainingPlayers = remainingPlayers.filter(player => player.totalBid > 0);
+    }
+
+    let winnings = {};
+    pots.forEach(pot => {
+        let bestHandRating = Math.max(...pot.players.map(p => p.handRating));
+        let winners = pot.players.filter(p => p.handRating === bestHandRating);
+
+        let share = pot.amount / winners.length;
+        winners.forEach(winner => {
+            if (!winnings[winner.index]) {
+                winnings[winner.index] = 0;
+            }
+            winnings[winner.index] += share;
+        });
+    });
+
+    return winnings;
+}
+
 
 function collectBlinds(table, smallBlindPlayerIndex, bigBlindPlayerIndex) {
     const {playerNames, playerNamesToData, bigBlind} = table;
@@ -303,7 +376,7 @@ function processPlayerChoice(currentPlayerName, status, statusData) {
             player.statusData = 0;
         });
 
-        concludeBiddingRound(table); // based on situation - show flop / river / turn / showdown - choosing winner
+        concludeBiddingRound(table, allPlayersData); // based on situation - show flop / river / turn / showdown - choosing winner
     }, 3000);
 }
 
