@@ -59,7 +59,11 @@ const tables = [
 const tableNameToTableInfo = {};
 
 function distributeHandRatings(table, allPlayersData) {
-    // todo - implement
+    const playerHandRatings = {};
+    allPlayersData.forEach((playerData, playerIndex) => {
+        const playerCards = [...playerData.cards, ...table.deck.cards];
+        playerHandRatings[playerIndex] = isActivePlayer(playerData) ? getBestCombinationRating(playerCards) : 0;
+    });
 }
 
 function concludeHand(table, allPlayersData) {
