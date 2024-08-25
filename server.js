@@ -1,7 +1,7 @@
 import express from 'express';
 import http from 'http';
 import { WebSocketServer } from 'ws';
-import { getShuffledCardDeck } from './poker.js';
+import { getBestCombinationRating, getShuffledCardDeck } from './poker.js';
 
 const PORT_NUMBER = 3000;
 const app = express();
@@ -61,27 +61,34 @@ const tableNameToTableInfo = {};
 function distributeHandRatings(table, allPlayersData) {
     const playerHandRatings = {};
     allPlayersData.forEach((playerData, playerIndex) => {
-        const playerCards = [...playerData.cards, ...table.deck.cards];
+        const playerCards = [...playerData.cards, ...table.communityCards];
         playerHandRatings[playerIndex] = isActivePlayer(playerData) ? getBestCombinationRating(playerCards) : 0;
+        console.log('Player indexed ', playerIndex, '-> overallRating: ', playerHandRatings[playerIndex]);
     });
+
+    return playerHandRatings;
 }
 
 function concludeHand(table, allPlayersData) {
     const playerHandRatings = distributeHandRatings(table, allPlayersData); // {index: rating}
+    console.log("playerHandRatings: ", playerHandRatings);
     const activePlayersSummary = allPlayersData.map((playerData, playerIndex) => {
         return { index: playerIndex, totalBid: playerData.totalBid, handRating: playerHandRatings[playerIndex] };
     }); // [{index: number, totalBid: number, handRating: number}]
 
+    console.log("activePlayersSummary: ", activePlayersSummary);
     const playerWinnings = distributeWinnings(activePlayersSummary); // {index: amount}
 
+    console.log("playerWinnings: ", playerWinnings);
     allPlayersData.forEach((playerData, playerIndex) => {
-        playerData.balance += playerWinnings[playerIndex]; // possibly Math.round needed
+        const wonAmount = playerWinnings[playerIndex];
+        playerData.balance += wonAmount ? Math.round(100 * wonAmount) / 100 : 0;
     });
 
     table.pot = 0;
 }
 
-function concludeBiddingRound(table, allPlayersData) {
+function concludeBiddingRound(table, allPlayersData, tableName) {
     const { communityCards, deck } = table;
     if (communityCards[0] === null) {
         // show flop (first 3 cards)
@@ -100,9 +107,10 @@ function concludeBiddingRound(table, allPlayersData) {
     } else {
         // todo - winner evaluation
         concludeHand(table, allPlayersData);
+        table.currentPlayerIndex = -1;
         sendTableUpdate(table); // modification - need to show cards of active players
         setTimeout(() => {
-            dealPokerHand(table); // deal a new hand in a few seconds
+            dealPokerHand(tableName); // deal a new hand in a few seconds
         }, 3000);
         
         return;
@@ -240,21 +248,26 @@ function sendTableUpdate(table) {
 function dealPokerHand(tableName) {
     const table = tableNameToTableInfo[tableName];
     if (!table) {
+        console.log("!table return");
         return; // table is undefined
     }
 
     const playersCount = table.playerNames.length;
     if (playersCount === 1) {
+        console.log("playersCount === 1 return");
         return; // not enough players
     }
 
     if (table.deck === null) { // first hand
+        console.log("initializePlayerNamesToData called from dealPokerHand.");
         initializePlayerNamesToData(table);
     } else {
+        console.log("reset statuses and total bids.");
         resetPlayerStatuses(table);
         resetPlayerTotalBids(table);
     }
 
+    console.log("Dealing new poker hand");
     table.deck = {cards: getShuffledCardDeck(), cardIndex: 0};
     table.currentDealerIndex = (table.currentDealerIndex + 1) % playersCount; // at start index goes from -1 to 0, later -> index increments
 
@@ -262,6 +275,7 @@ function dealPokerHand(tableName) {
     const smallBlindPlayerIndex = (table.currentDealerIndex + offset) % playersCount;
     const bigBlindPlayerIndex = (table.currentDealerIndex + offset + 1) % playersCount;
     table.currentPlayerIndex = (table.currentDealerIndex + offset + 2) % playersCount;
+
 
     distributeCards(table);
     collectBlinds(table, smallBlindPlayerIndex, bigBlindPlayerIndex);
@@ -297,16 +311,12 @@ function processPlayerChoice(currentPlayerName, status, statusData) {
         return playerNamesToData[playerName];
     });
 
-    console.log("AllPlayersData before: ", allPlayersData);
-
     // update current player data based on player's choice
     const currentPlayerData = allPlayersData[senderPlayerIndex];
     currentPlayerData.status = status;
     currentPlayerData.statusData = statusData;
     currentPlayerData.currentBid += statusData;
     currentPlayerData.balance -= statusData;
-
-    console.log("AllPlayersData after: ", allPlayersData);
 
     const activePlayersData = allPlayersData.filter((player) => {
         return isActivePlayer(player);
@@ -380,7 +390,7 @@ function processPlayerChoice(currentPlayerName, status, statusData) {
             player.statusData = 0;
         });
 
-        concludeBiddingRound(table, allPlayersData); // based on situation - show flop / river / turn / showdown - choosing winner
+        concludeBiddingRound(table, allPlayersData, tableName); // based on situation - show flop / river / turn / showdown - choosing winner
     }, 3000);
 }
 
