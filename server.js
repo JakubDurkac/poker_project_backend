@@ -50,7 +50,7 @@ function distributeHandRatings(table, allPlayersData) {
     allPlayersData.forEach((playerData, playerIndex) => {
         const playerCards = [...playerData.cards, ...table.communityCards];
         const playerCardsCopy = JSON.parse(JSON.stringify(playerCards));
-        const [overallRating, typeRating] = isActivePlayer(playerData) ? getBestCombinationRating(playerCards) : [0, 0];
+        const [overallRating, handAttributes] = isActivePlayer(playerData) ? getBestCombinationRating(playerCards) : [0, 0];
         playerHandRatings[playerIndex] = overallRating;
 
         if (overallRating > 0) {
@@ -58,7 +58,7 @@ function distributeHandRatings(table, allPlayersData) {
                 playerName: playerNames[playerIndex],
                 playerCards: playerCardsCopy,
                 overallRating: overallRating,
-                handTypeRating: typeRating,
+                handAttributes: handAttributes,
             });
         }
 

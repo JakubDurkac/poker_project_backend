@@ -84,7 +84,7 @@ export function getBestCombinationRating(cards) {
         overallRating += decidingFactor * (RATING_BASE ** importanceLevel);
     });
 
-    return [overallRating, handAttributes.rating];
+    return [overallRating, handAttributes];
 }
 
 function straightFlushOrRegularStraight(cards, handAttributes, isRegularStraight) {
