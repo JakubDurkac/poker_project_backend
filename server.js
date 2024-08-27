@@ -17,24 +17,7 @@ const nameToClientInfo = {};
 //     bigBlindPrice: number
 //     tableName: string | null,
 // };
-const tables = [
-    {
-        name: "High Stakes",
-        buyIn: 2000,
-        bigBlind: 20,
-        playerNames: ["Jerry", "Harry", "Peter"],
-        pot: 0,
-        communityCards: [null, null, null, null, null],
-        playerNamesToData: {"Jerry": {cards: [{suit: 'c', rank: '7'}, {suit: 'd', rank: 't'}], balance: 1000, currentBid: 0, totalBid: 0, status: "none", statusData: 0},
-                        "Harry": {cards: [{suit: 'h', rank: 'a'}, {suit: 'c', rank: 'k'}], balance: 1000, currentBid: 0, totalBid: 0, status: "none", statusData: 0},
-                        "Peter": {cards: [{suit: 's', rank: 'q'}, {suit: 's', rank: '3'}], balance: 1000, currentBid: 0, totalBid: 0, status: "none", statusData: 0}},
-        isActive: false,
-        currentDealerIndex: 0,
-        currentPlayerIndex: 0,
-        deck: {cards: [], cardIndex: 0},
-        disconnectQueue: []
-    },
-];
+const tables = [];
 // const exampleTable = {
     // name: string,
     // buyIn: number,
@@ -273,16 +256,30 @@ function dealPokerHand(tableName) {
         return; // table is undefined
     }
 
+    table.playerNames.forEach((playerName) => {
+        if (table.playerNamesToData[playerName].balance === 0) {
+            table.disconnectQueue.push(playerName);
+            sendMessageToClient(playerName, 'bankrupt', '');
+        }
+    });
+
+    let needTablesListUpdate = false;
     table.disconnectQueue.forEach((playerName) => {
+        needTablesListUpdate = true;
         delete table.playerNamesToData[playerName];
         table.playerNames = table.playerNames.filter(name => name !== playerName);
     });
 
     table.disconnectQueue = [];
 
+    if (needTablesListUpdate) {
+        sendTablesListToEveryone();
+    }
+
     const playersCount = table.playerNames.length;
     if (playersCount === 1) {
         console.log("playersCount === 1 return");
+        sendTableUpdate(table);
         return; // not enough players
     }
 
@@ -468,17 +465,9 @@ function addPlayerToTable(tableName, playerName) {
     }
 
     table.playerNames.push(playerName);
-    // here initialize playerNamesToData[playerName] marked with "fold" state, so the player starts on next hand
     table.playerNamesToData[playerName] = {cards: [null, null], balance: table.buyIn, currentBid: 0, totalBid: 0, status: "fold", statusData: 0};
     nameToClientInfo[playerName].tableName = tableName;
 
-    // game entry point:
-    // 2 players -> game can start
-    // first hand starts after 2nd player joins,
-    // next hands will start automatically,
-    // while table is active
-    // table becomes inactive after there's
-    // only 1 player left
     if (table.playerNames.length === 2) {
         table.isActive = true;
         dealPokerHand(tableName);
@@ -487,24 +476,9 @@ function addPlayerToTable(tableName, playerName) {
     }
 
     sendTablesListToEveryone();
-
-    // active state -> hands are being dealt (shuffle and send out cards, 
-    // choose dealer, handle players choices, handle players communication
-    // evaluate hand winner, divide the pot, etc.)
-    // server shall send updates on the table state, clients shall update visuals
-    // on their end accordingly; in active state, hand starts with a table update
-    // sent to all players
 }
 
 function handlePlayerLeaveTable(tableName, playerName) {
-    // todo - instead of removing player from table immediately, keep him there
-    // until the start of next hand (where he will be removed), this player
-    // should be marked "disconnected" in some way, his turn is skipped as "fold"
-    // but he is still able to win and decrease balance of others, if this auto-fold
-    // does not happen in time after his disconnect and before the end of hand
-    
-    // todo - disconnectQueue to the table, the player will be removed from table
-    // at the end of the hand
     const table = tableNameToTableInfo[tableName];
     if (!table) {
         return;
@@ -515,14 +489,18 @@ function handlePlayerLeaveTable(tableName, playerName) {
         processPlayerChoice(playerName, 'fold', 0);
     } else {
         const playerData = table.playerNamesToData[playerName];
-        playerData.status = 'fold';
-        playerData.statusData = 0;
+        if (playerData) {
+            playerData.status = 'fold';
+            playerData.statusData = 0;
+        }
+
         sendTableUpdate(table);
     }
 
-    if (table.playerNames.length <= 1) {
+    if (table.playerNames.length - table.disconnectQueue.length <= 0) {
+        console.log('Removing table.');
         removeTable(tableName);
-    } else if (table.playerNames.length <= 2) {
+    } else if (table.playerNames.length - table.disconnectQueue.length <= 1) {
         table.isActive = false;
     }
 
