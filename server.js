@@ -44,11 +44,31 @@ const tables = [];
 const tableNameToTableInfo = {};
 
 function distributeHandRatings(table, allPlayersData) {
+    const { playerNames } = table;
+    const showdownObjects = [];
     const playerHandRatings = {};
     allPlayersData.forEach((playerData, playerIndex) => {
         const playerCards = [...playerData.cards, ...table.communityCards];
-        playerHandRatings[playerIndex] = isActivePlayer(playerData) ? getBestCombinationRating(playerCards) : 0;
+        const playerCardsCopy = JSON.parse(JSON.stringify(playerCards));
+        const [overallRating, typeRating] = isActivePlayer(playerData) ? getBestCombinationRating(playerCards) : [0, 0];
+        playerHandRatings[playerIndex] = overallRating;
+
+        if (overallRating > 0) {
+            showdownObjects.push({
+                playerName: playerNames[playerIndex],
+                playerCards: playerCardsCopy,
+                overallRating: overallRating,
+                handTypeRating: typeRating,
+            });
+        }
+
         console.log('Player indexed ', playerIndex, '-> overallRating: ', playerHandRatings[playerIndex]);
+    });
+
+    // send the list of playerRatingObjects to the players at the table, so they can display it
+    showdownObjects.sort((a, b) => b.overallRating - a.overallRating);
+    playerNames.forEach((playerName) => {
+        sendMessageToClient(playerName, 'showdown', showdownObjects);
     });
 
     return playerHandRatings;
