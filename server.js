@@ -571,6 +571,27 @@ function sendMessageToClient(toName, messageType, messageData) {
     clientInfo.socket.send(JSON.stringify(message));
 }
 
+function sendChatMessageAroundTable(author, message) {
+    const clientInfo = nameToClientInfo[author];
+    if (!clientInfo || !clientInfo.tableName) {
+        return;
+    }
+
+    const dataToSend = {
+        chatAuthor: author,
+        chatMessage: message,
+    };
+
+    const table = tableNameToTableInfo[clientInfo.tableName];
+    if (table) {
+        table.playerNames.forEach((playerName) => {
+            if (playerName !== author) {
+                sendMessageToClient(playerName, "chatMessage", dataToSend);
+            }
+        });
+    }
+}
+
 wss.on('connection', (ws) => {
     console.log(`A new client connected.`);
 
@@ -624,6 +645,12 @@ wss.on('connection', (ws) => {
                 const { status, statusData } = objMessage.data;
                 
                 processPlayerChoice(currentPlayerName, status, statusData);
+                break;
+
+            case "chatMessage":
+                const { author, message } = objMessage.data.chatMessage;
+                sendChatMessageAroundTable(author, message);
+                break;
 
             default:
                 break;
