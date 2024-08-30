@@ -234,6 +234,10 @@ function distributeCards(table) {
 
 function sendTableUpdateShowdown(table) {
     table.playerNames.forEach((playerName) => {
+        if (table.disconnectQueue.includes(playerName)) {
+            return; // skip disconnected players
+        }
+        
         const tableDataCopy = JSON.parse(JSON.stringify(table));
         
         // privatize cards of those who fold, active players cards are shown
@@ -253,6 +257,10 @@ function sendTableUpdateShowdown(table) {
 
 function sendTableUpdate(table) {
     table.playerNames.forEach((playerName) => {
+        if (table.disconnectQueue.includes(playerName)) {
+            return; // skip disconnected players
+        }
+
         const tableDataCopy = JSON.parse(JSON.stringify(table));
         
         // privatize cards of opponents
@@ -264,7 +272,6 @@ function sendTableUpdate(table) {
 
         // privatize card deck
         tableDataCopy.deck = null;
-
         sendMessageToClient(playerName, "tableUpdate", tableDataCopy);
     });
 }
